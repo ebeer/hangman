@@ -1,0 +1,32 @@
+Hangman
+
+a basic (socket)networked multiplayer hangman game
+ (2 player functionality still in progress) 
+
+game.py
+-contains base game object as well as objects for the status messages and 1:1 matchup
+
+sserver.py
+-basic game server
+-goal for 2 player game is players trade words then race to finish
+
+play_client.py
+-makes connection to the game server and decodes/encodes game status json objects to communicate with server
+
+
+Features Snazzy Ascii graphics:
+
+Sorry!
+ You have guessed:  a o
+
+            -----
+            |   |
+            O   |
+            |   |
+                |
+                |
+            ---------
+
+ _ _ s s p e l l
+
+
