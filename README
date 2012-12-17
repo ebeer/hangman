@@ -1,7 +1,6 @@
 Hangman
 
-a basic (socket)networked multiplayer hangman game
- (2 player functionality still in progress) 
+a basic (socket)networked 2 player hangman game
 
 game.py
 -contains base game object as well as objects for the status messages and 1:1 matchup
@@ -10,8 +9,9 @@ sserver.py
 -basic game server
 -goal for 2 player game is players trade words then race to finish
 
-play_client.py
+play_client.py (optional host/port argument to inidicate where server is)
 -makes connection to the game server and decodes/encodes game status json objects to communicate with server
+-user can select 1 or 2 player game
 
 
 Features Snazzy Ascii graphics:
