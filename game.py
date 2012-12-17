@@ -1,9 +1,9 @@
 """
-single game object
+Game Status obects are serialized and passed between the client and server as the game play progresses
 
-match container for 2 game matchup or processing of single player
+Match object is a container for 2 game matchup or processing of single player
 
-game status message for communication with the client
+Game object processes game logic for each player
 
 """
 
@@ -11,18 +11,26 @@ import re
 import json
 import random
 
-WAIT_FOR_INIT = 0
-READY = 1
-IN_PLAY = 2
-LOST = 3
-WON = 4
+#constants
+WAIT_FOR_INIT = -1
+WAIT_TO_GIVE_WORD = 0
+WAIT_TO_GET_WORD = 1
+READY = 2
+IN_PLAY = 3
+LOST = 4
+WON = 5
 QUIT_CHARACTER = "*"
 ONE_PLAYER_RESPONSE = ("N", "n")
+INITIAL_CONNECT_MESSAGE = "start"
+ONE_PLAYER_WORD_FILE = 'source words.txt'
 
 
+#communication object passed between client and server
 class Game_Status:
-    status_message = {"display": "","response": "","flag": WAIT_FOR_INIT}
-
+    
+    def __init__(self):
+        self.status_message = {"display": "","response": "","flag": WAIT_FOR_INIT}
+        
     def set_from_game(self, game_obj):
         self.set_status_flag(game_obj.get_status())   
     
@@ -55,53 +63,98 @@ class Game_Status:
 
 
 
-
+#container for game(s) coordinated 'trading' of words and status communications
 class Match:
-    match_dict = {} #indexes the game objects by the associated socket file number
-    is_two_player =  False
-    socketa = ""
-    socketb = ""
-    waiting = True
-    players = 0
+    
     
     def __init__(self):
-        waiting = True
+        self.waiting = True
+        self.match_dict = {} #indexes the game objects by the associated socket file number
+        self.is_two_player =  False
+        self.socketa = ""
+        self.socketb = ""
+        self.players = 0
 
-    def process_multi_request(self, answer):
-        if answer.get_user_input() in ONE_PLAYER_RESPONSE :
-            waiting = False
-            is_two_player = False
-            return False
-        else:
-            waiting = True
-            is_two_player = True
-            return True
-        
+    #prompt user to either start 1 player or 2 player game    
     def prompt_for_multiplayer(self):
         start = Game_Status()
         start.set_status_flag(WAIT_FOR_INIT)
         start.set_display("Would you like to wait for opponent(Y) or play as 1 player(N)?\n")
         self.players +=1
         return start
-        
-    def start_2player(self):
-        player1 = Game(socketa)
-        player2 = Game(socketb)
-        
-        self.match_dict[socket1.fileno()] = player1
-        self.match_dict[socket2.fileno()] = player2
 
-        self.is_two_player = True
+    #process user response and set flags for 1 or 2 player game
+    def process_multi_request(self, answer):
+        if answer.get_user_input() in ONE_PLAYER_RESPONSE :
+            self.waiting = False
+            self.is_two_player = False
+            return False
+        else:
+            self.waiting = True
+            self.is_two_player = True
+            return True
+
+   
+     #start method for 2 player games   
+    def start_2player(self, socket1):
+       # print ("entering start 2 player function")
+        #print ("players connected = " + str(self.players))
+        if self.players == 1 :
+            #this is player one
+            #we are waiting for player 2
+            #prompt player 1 for word and wait
+            self.socketa = socket1
+            player1 = Game(socket1)
+            self.match_dict[socket1.fileno()] = player1
+            status = Game_Status()
+            status.set_from_game(player1)
+            status.set_status_flag(WAIT_TO_GIVE_WORD)
+            status.set_display(player1.init_directions() + "\n")
+        else:
+            #two player game and this is player #2
+            #prompt for word and send go to both 
+            self.socketb = socket1
+            player2 = Game(socket1)
+            self.match_dict[socket1.fileno()] = player2
+            status = Game_Status()
+            status.set_from_game(player2)
+            status.set_status_flag(WAIT_TO_GIVE_WORD)
+            status.set_display(player2.init_directions() + "\n")
+        return status
+
+    #retreive oppenent game object from the match dict, keyed by socket
+    def get_opponent_game(self, socket1):
+        if (socket1 == self.socketa):
+            socket2 = self.socketb
+        else:
+            socket2 = self.socketa
+
+        opp = self.match_dict[socket2.fileno()]
+        return opp
+        
+
+    def set_opponent_word(self, socket1):
+        #pass word to opponent game object if any has connected yet
+        try:
+            my_game = self.match_dict[socket1.fileno()]
+            opp = self.get_opponent_game(socket1)
+        except:
+            return False
+        #print ("set opp word rec'd " + str(my_game.get_opponent_word()))
+        opp.set_word(my_game.get_opponent_word())
+        #print ("my game being set to " + str(opp.get_opponent_word()))
+        my_game.set_word(opp.get_opponent_word())
+
         self.waiting = False
-        return player1, player2
-
-
+        return True
         
+
+     #start one player game and initialize accordingly   
     def start_1player(self, socket1):
         player1= Game(socket1)
         
         #one player game reads from text file of source words
-        wordlist = open('source words.txt', 'r').readlines()
+        wordlist = open(ONE_PLAYER_WORD_FILE, 'r').readlines()
         words = [word.strip() for word in wordlist]
         solution = random.choice(words)
 
@@ -112,34 +165,43 @@ class Match:
         self.waiting = False
         status = Game_Status()
         status.set_from_game(player1)
-        status.set_display(player1.get_directions() + "\n" )
+        status.set_display(player1.get_directions())
         return status
 
 
         
     def process_game_response (self, socket1, game_status):
-        
+        game_status_opp = Game_Status()
         my_game = self.match_dict[socket1.fileno()] #retrieve game object
-       # print "mygame status is - " + str(my_game.get_status())
-        if (my_game.get_status() == WAIT_FOR_INIT):
-            #sending word to opponent
-            game_status.set_display("hello")
+       
+        if (my_game.get_status() == WAIT_TO_GIVE_WORD):
+            #user has entered a word for the opponent
+            done = my_game.init_for_opponent(game_status.get_user_input())
+            if (not self.set_opponent_word(socket1)):
+                game_status.set_status_flag(WAIT_TO_GET_WORD)
+                game_status.set_display("thank you... waiting for opponent connect")
+            else:
+                game_status.set_status_flag(READY)
+                if (self.players == 2):
+                    game_status.set_display(my_game.get_directions())
+                    opp_game = self.get_opponent_game(socket1)
+                    game_status_opp.set_from_game(opp_game)
+                    game_status_opp.set_display(opp_game.get_directions())
+                
         elif (my_game.get_status() == IN_PLAY) or (my_game.get_status() == READY):
-           #print "user entered = " + game_status.get_user_input()
-            #print "solution is " + my_game.get_word()
             done, response = my_game.check_guess(game_status.get_user_input())
             game_status.set_display(response)
-           # print "response is " + response
             game_status.set_status_flag(done)
            
-            if (self.is_two_player) & (done > IN_PLAY):
+            if (self.is_two_player) & (done > IN_PLAY): #player just ended the game/lost/won, send msg to opponent
                 if socket1 == socketa:
                     opp_game = self.match_dict[socketb]
                 else:
                     opp_game = self.match_dict[socketa]
 
                 opp_game.opponent_game_over(done)
-            return game_status
+
+        return game_status, game_status_opp
            
             
 
@@ -147,21 +209,12 @@ class Match:
 
         
 
-    
-class Game:
-    _solution = ""
-    _failed_guesses = ""
-    _max_word_length = 10
-    _display_string = ""
-    _unique_letters = 0
-    _wrong_count = 0
-    _correct_count = 0
-    _max_wrong = 6
-    _status = 0
-    _opponent = ""
-    _response = ""
-    _player_network_connection = ""
 
+#logic container for individual game    
+class Game:
+    
+    _max_word_length = 10
+    _max_wrong = 6
     _hangman = [
 """
             -----
@@ -229,22 +282,27 @@ class Game:
 """]
 
     def __init__ (self, socket):
-        _player_network_connection = socket
-        self.set_status(WAIT_FOR_INIT)
+        self._solution = ""
+        self._failed_guesses = ""
+        self._display_string = ""
+        self._unique_letters = 0
+        self._wrong_count = 0
+        self._correct_count = 0
+        self._status = WAIT_FOR_INIT 
+        self._response = ""
 
-    def get_network_connection(self):
-        return _player_network_connection
-    
+
     def init_directions(self):
+        self.set_status(WAIT_TO_GIVE_WORD)
         return "Please enter an up to " + str(self._max_word_length) + " letter word for your opponent to guess:\n"
 
     def init_for_opponent(self, word):
-        if len(word) < self._max_word_length:
-            self._opponent = word
-            return True
-        else:
-            return False
-        
+        self._opponent = word
+        return True
+      
+    def get_opponent_word(self):
+        return self._opponent
+    
     def set_status(self, flag):
         self._status = flag
 
@@ -257,7 +315,7 @@ class Game:
 
 
     def get_directions(self):
-        return "Hello, you have " + str(self._max_wrong) + " chances to guess wrong.\nEnter " + QUIT_CHARACTER + " to quit.\n" + self._display_string
+        return "Hello, you have " + str(self._max_wrong) + " chances to guess wrong.\nEnter " + QUIT_CHARACTER + " to quit.\n" + self._display_string  + "\n" 
     
     
     def get_response(self):
@@ -265,13 +323,10 @@ class Game:
 
 
     def set_word(self, word):
-        if len(word) <= self._max_word_length:
-            self._solution = word
-            self._display_string = " _" * len(word)
-            self._unique_letters = len(set (''.join(word)))
-            self._status = READY
-        else:
-            self._status = WAIT_FOR_INIT
+        self._solution = word
+        self._display_string = " _" * len(word)
+        self._unique_letters = len(set (''.join(word)))
+        self._status = READY
         return self._status
 
 
