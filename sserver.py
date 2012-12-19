@@ -18,11 +18,18 @@ else:
  
 backlog = 5 
 size = 2050
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((host))
-print ("Hangman game server started on host=" + str(host))
 
-server.listen(backlog)
+try:
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((host))
+    print ("Hangman game server started on host=" + str(host))
+    server.listen(backlog)
+except socket.error, (num, msg):
+    if server:
+        server.close()
+        #print "Failed to start game server: " + msg
+        sys.exit(1)
+        
 inputs = [server]
 running = 1
 versus = game.Match()
@@ -37,12 +44,13 @@ while running:
             inputs.append(client)
         else:
             data = s.recv(size)
+            #print data
             #initialize status messages for both players
             status_message = game.Game_Status()
             status_message_opp = game.Game_Status()
-            if (versus.waiting):
-                if (data == game.INITIAL_CONNECT_MESSAGE):
-                    if (versus.is_two_player == True):
+            if versus.waiting:
+                if data == game.INITIAL_CONNECT_MESSAGE:
+                    if versus.is_two_player:
                         #waiting
                         versus.waiting = True
                         versus.players +=1
@@ -51,7 +59,7 @@ while running:
                         status_message = versus.prompt_for_multiplayer()
                 else:
                     status_message.load_from_json(data)
-                    if (status_message.get_status_flag() == game.WAIT_TO_GIVE_WORD):
+                    if (status_message.status_flag == game.WAIT_TO_GIVE_WORD):
                         #user is sending word for the opponent
                         status_message, status_message_opp = versus.process_game_response(s, status_message)
                     elif (not versus.process_multi_request(status_message)):
@@ -63,9 +71,8 @@ while running:
                 s.send(status_message.save_to_json())
                 
                 #check for opponent connection status and send message to opponent
-                #print ("opponent status = " + str(status_message_opp.get_status_flag()))
-                #print ("sending opponent =" + status_message_opp.save_to_json())
-                if (status_message_opp.get_status_flag() != game.WAIT_FOR_INIT):
+                print "opponent status = " + str(status_message_opp.status_flag)
+                if status_message_opp.status_flag > game.WAIT_FOR_INIT and status_message_opp.status_flag < game.IN_PLAY:
                     #print "s= " + str(s) + " socketa=" + str(versus.socketa) + " socketb=" + str(versus.socketb)
                     if (s != versus.socketa) & (isinstance(versus.socketa, socket.socket)):
                         versus.socketa.send(status_message_opp.save_to_json())
@@ -77,8 +84,11 @@ while running:
                 status_message.load_from_json(data)
                 status_message, status_message_opp = versus.process_game_response(s, status_message)
                 s.send(status_message.save_to_json())
-                if (status_message.get_status_flag() > game.IN_PLAY): #game over
+                if (status_message.status_flag > game.IN_PLAY): #game over
                     s.close()
+                    inputready.remove(s)
+                    print "closing connection to a client"
                 
-    
+
+print "game server shutting down now"    
 server.close()

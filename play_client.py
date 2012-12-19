@@ -25,25 +25,36 @@ if __name__ == "__main__":
     
     size = 5000 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
-    s.connect((host))
 
+    try:
+        s.connect((host))
+    except:
+        print "Sorry, we are unable to connect to the server\n"
+        raise
+    
     s.send(game.INITIAL_CONNECT_MESSAGE)
 
     while True:
         #all messages passed between client and server are game status object
         my_status = Game_Status()
-        data = s.recv(size)
-        my_status.load_from_json(data)
-        
-        if (my_status.get_status_flag() > game.IN_PLAY):
-            print my_status.get_display() #game over
+      
+        try:
+            data = s.recv(size)
+            #print data
+            my_status.load_from_json(data)
+        except:
+            print "Sorry, an error occured:  game exiting\n"
+            s.close()
             break
-        elif (my_status.get_status_flag() == game.WAIT_TO_GET_WORD):
-            print my_status.get_display() #we are waiting for opponent connect
+        
+        if my_status.status_flag > game.IN_PLAY:
+            print my_status.display #game over
+            break
+        elif my_status.status_flag == game.WAIT_TO_GET_WORD:
+            print my_status.display #we are waiting for opponent connect
             continue
         else:
-            user_input = raw_input(my_status.get_display()) 
-            my_status.set_user_input(user_input)
+            my_status.user_input = raw_input(my_status.display) 
             s.sendall(my_status.save_to_json())
 
 
